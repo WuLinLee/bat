@@ -1,0 +1,204 @@
+name: Populate ffmpeg-gs Windows tools
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/populate-ffmpeg-gs.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  populate:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - name: Download and stage tools
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $repoRoot = $env:GITHUB_WORKSPACE
+          $dest = Join-Path $repoRoot 'ffmpeg-gs'
+          $work = Join-Path $env:RUNNER_TEMP 'ffmpeg-gs-stage'
+          New-Item -ItemType Directory -Path $dest -Force | Out-Null
+          New-Item -ItemType Directory -Path $work -Force | Out-Null
+
+          function Download-File([string]$Uri, [string]$OutFile) {
+            Write-Host "Downloading $Uri"
+            Invoke-WebRequest -Uri $Uri -OutFile $OutFile
+            if (-not (Test-Path -LiteralPath $OutFile) -or (Get-Item -LiteralPath $OutFile).Length -eq 0) {
+              throw "Download failed or returned an empty file: $Uri"
+            }
+          }
+
+          function Check-Sha256([string]$Path, [string]$Expected) {
+            $actual = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($actual -ne $Expected.ToLowerInvariant()) {
+              throw "SHA-256 mismatch for $Path. Expected $Expected; got $actual"
+            }
+            Write-Host "SHA-256 verified: $([IO.Path]::GetFileName($Path))"
+          }
+
+          $sevenZip = (Get-Command 7z.exe -ErrorAction SilentlyContinue).Source
+          if (-not $sevenZip) {
+            $candidate = 'C:\Program Files\7-Zip\7z.exe'
+            if (Test-Path -LiteralPath $candidate) { $sevenZip = $candidate }
+          }
+          if (-not $sevenZip) { throw '7-Zip was not found on the Windows runner.' }
+
+          # FFmpeg 8.0.1 Windows build from Gyan Doshi's release repository.
+          # Prefer the full build; fall back to essentials if the EXE would exceed GitHub's 100 MiB file limit.
+          $ffmpegFull = Join-Path $work 'ffmpeg-8.0.1-full_build.7z'
+          $ffmpegFullUrl = 'https://github.com/GyanD/codexffmpeg/releases/download/8.0.1/ffmpeg-8.0.1-full_build.7z'
+          Download-File $ffmpegFullUrl $ffmpegFull
+          Check-Sha256 $ffmpegFull '42edab4b9241ff1184b26d5f4545322227589713a7e56cf4459c4c4e30ccaaac'
+          $ffmpegExtract = Join-Path $work 'ffmpeg-full'
+          New-Item -ItemType Directory -Path $ffmpegExtract -Force | Out-Null
+          & $sevenZip x $ffmpegFull "-o$ffmpegExtract" -y | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw 'Could not extract the FFmpeg full build archive.' }
+          $ffmpegSource = Get-ChildItem -Path $ffmpegExtract -Filter ffmpeg.exe -Recurse -File |
+            Where-Object { $_.FullName -match '[\\/]bin[\\/]ffmpeg\.exe$' } |
+            Select-Object -First 1
+          if (-not $ffmpegSource) { throw 'ffmpeg.exe was not found in the extracted full build.' }
+
+          if ($ffmpegSource.Length -ge (100MB)) {
+            Write-Warning 'The full-build ffmpeg.exe exceeds GitHub''s 100 MiB per-file limit; using the official essentials build instead.'
+            $ffmpegEss = Join-Path $work 'ffmpeg-8.0.1-essentials_build.7z'
+            Download-File 'https://github.com/GyanD/codexffmpeg/releases/download/8.0.1/ffmpeg-8.0.1-essentials_build.7z' $ffmpegEss
+            Check-Sha256 $ffmpegEss 'a0c715acca3839bfd203e600a7775b83cfe3ff928a4eceb9ca54f2982365901c'
+            $essExtract = Join-Path $work 'ffmpeg-essentials'
+            New-Item -ItemType Directory -Path $essExtract -Force | Out-Null
+            & $sevenZip x $ffmpegEss "-o$essExtract" -y | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw 'Could not extract the FFmpeg essentials archive.' }
+            $ffmpegSource = Get-ChildItem -Path $essExtract -Filter ffmpeg.exe -Recurse -File |
+              Where-Object { $_.FullName -match '[\\/]bin[\\/]ffmpeg\.exe$' } |
+              Select-Object -First 1
+            $ffmpegVariant = '8.0.1 essentials (GitHub file-size limit)'
+          } else {
+            $ffmpegVariant = '8.0.1 full'
+          }
+          if (-not $ffmpegSource -or $ffmpegSource.Length -ge (100MB)) { throw 'No suitable ffmpeg.exe under GitHub''s 100 MiB per-file limit was found.' }
+          Copy-Item -LiteralPath $ffmpegSource.FullName -Destination (Join-Path $dest 'ffmpeg.exe') -Force
+          Write-Host "FFmpeg selected: $ffmpegVariant; $($ffmpegSource.Length) bytes"
+
+          # fpcalc from the official Chromaprint 1.6.1 Windows x64 release.
+          $fpZip = Join-Path $work 'chromaprint-fpcalc-1.6.1-windows-x86_64.zip'
+          Download-File 'https://github.com/acoustid/chromaprint/releases/download/v1.6.1/chromaprint-fpcalc-1.6.1-windows-x86_64.zip' $fpZip
+          Check-Sha256 $fpZip '735d6182b38e9f364b84ce6f4ccd682c75e2851de89735711d6b762d12b92a4e'
+          $fpExtract = Join-Path $work 'fpcalc'
+          Expand-Archive -LiteralPath $fpZip -DestinationPath $fpExtract -Force
+          $fpSource = Get-ChildItem -Path $fpExtract -Filter fpcalc.exe -Recurse -File | Select-Object -First 1
+          if (-not $fpSource) { throw 'fpcalc.exe was not found in the official Chromaprint archive.' }
+          Copy-Item -LiteralPath $fpSource.FullName -Destination (Join-Path $dest 'fpcalc.exe') -Force
+
+          # Ghostscript 10.04.0 official Windows x64 installer and checksum manifest.
+          $gsInstaller = Join-Path $work 'gs10040w64.exe'
+          Download-File 'https://github.com/ArtifexSoftware/ghostpdl-downloads/releases/download/gs10040/gs10040w64.exe' $gsInstaller
+          $gsSums = Join-Path $work 'SHA512SUMS'
+          Download-File 'https://github.com/ArtifexSoftware/ghostpdl-downloads/releases/download/gs10040/SHA512SUMS' $gsSums
+          $sumLine = Get-Content -LiteralPath $gsSums | Where-Object { $_ -match 'gs10040w64\.exe' } | Select-Object -First 1
+          if (-not $sumLine) { throw 'Ghostscript SHA512SUMS did not contain the Windows x64 installer entry.' }
+          $expectedGs = ([regex]::Match($sumLine, '[0-9a-fA-F]{128}')).Value
+          if (-not $expectedGs) { throw 'Could not parse Ghostscript installer SHA-512 checksum.' }
+          $actualGs = (Get-FileHash -LiteralPath $gsInstaller -Algorithm SHA512).Hash
+          if ($actualGs.ToLowerInvariant() -ne $expectedGs.ToLowerInvariant()) { throw 'Ghostscript installer SHA-512 mismatch.' }
+          $gsInstall = Join-Path $work 'ghostscript-install'
+          New-Item -ItemType Directory -Path $gsInstall -Force | Out-Null
+          $gsArg = '/D=' + $gsInstall
+          $proc = Start-Process -FilePath $gsInstaller -ArgumentList @('/S', $gsArg) -Wait -PassThru
+          if ($proc.ExitCode -ne 0) { throw "Ghostscript installer returned exit code $($proc.ExitCode)." }
+          $gsExe = Get-ChildItem -Path $gsInstall -Filter gswin64c.exe -Recurse -File | Select-Object -First 1
+          $gsDll = Get-ChildItem -Path $gsInstall -Filter gsdll64.dll -Recurse -File | Select-Object -First 1
+          if (-not $gsExe -or -not $gsDll) { throw 'Could not locate gswin64c.exe and gsdll64.dll after installing Ghostscript.' }
+          Copy-Item -LiteralPath $gsExe.FullName -Destination (Join-Path $dest 'gswin64c.exe') -Force
+          Copy-Item -LiteralPath $gsDll.FullName -Destination (Join-Path $dest 'gsdll64.dll') -Force
+
+          # Official img2pdf 0.6.3 package. Build self-contained Windows executables,
+          # because the small pip launcher stubs are not portable without their companion scripts/Python packages.
+          $pythonWork = Join-Path $work 'img2pdf-build'
+          New-Item -ItemType Directory -Path $pythonWork -Force | Out-Null
+          python -m pip install --disable-pip-version-check 'img2pdf==0.6.3' 'pyinstaller==6.16.0'
+          if ($LASTEXITCODE -ne 0) { throw 'Could not install the pinned img2pdf build dependencies.' }
+          $cliEntry = Join-Path $pythonWork 'img2pdf_cli_entry.py'
+          @'
+          from img2pdf import main
+          if __name__ == "__main__":
+              main()
+          '@ | Set-Content -LiteralPath $cliEntry -Encoding utf8
+          $guiEntry = Join-Path $pythonWork 'img2pdf_gui_entry.py'
+          @'
+          from img2pdf import gui
+          if __name__ == "__main__":
+              gui()
+          '@ | Set-Content -LiteralPath $guiEntry -Encoding utf8
+          Push-Location $pythonWork
+          try {
+            python -m PyInstaller --clean --noconfirm --onefile --console --name img2pdf --collect-all img2pdf --collect-all pikepdf --collect-all PIL $cliEntry
+            if ($LASTEXITCODE -ne 0) { throw 'Could not build img2pdf.exe.' }
+            python -m PyInstaller --clean --noconfirm --onefile --windowed --name img2pdf-gui --collect-all img2pdf --collect-all pikepdf --collect-all PIL $guiEntry
+            if ($LASTEXITCODE -ne 0) { throw 'Could not build img2pdf-gui.exe.' }
+          } finally {
+            Pop-Location
+          }
+          $imgExe = Join-Path $pythonWork 'dist\img2pdf.exe'
+          $imgGuiExe = Join-Path $pythonWork 'dist\img2pdf-gui.exe'
+          if (-not (Test-Path -LiteralPath $imgExe) -or -not (Test-Path -LiteralPath $imgGuiExe)) { throw 'The img2pdf build outputs are missing.' }
+          Copy-Item -LiteralPath $imgExe -Destination (Join-Path $dest 'img2pdf.exe') -Force
+          Copy-Item -LiteralPath $imgGuiExe -Destination (Join-Path $dest 'img2pdf-gui.exe') -Force
+
+          # TagLibSharp 2.3.0 from the official NuGet package.
+          $nupkg = Join-Path $work 'TagLibSharp.2.3.0.nupkg'
+          Download-File 'https://www.nuget.org/api/v2/package/TagLibSharp/2.3.0' $nupkg
+          $nugetExtract = Join-Path $work 'taglib'
+          Expand-Archive -LiteralPath $nupkg -DestinationPath $nugetExtract -Force
+          $dlls = @(Get-ChildItem -Path $nugetExtract -Filter TagLibSharp.dll -Recurse -File)
+          if (-not $dlls.Count) { throw 'TagLibSharp.dll was not found in the NuGet package.' }
+          $tagDll = $dlls | Where-Object { $_.FullName -match '[\\/]lib[\\/]net4[0-9]+' } | Select-Object -First 1
+          if (-not $tagDll) { $tagDll = $dlls | Select-Object -First 1 }
+          Copy-Item -LiteralPath $tagDll.FullName -Destination (Join-Path $dest 'TagLibSharp.dll') -Force
+
+          # Add a provenance record for the binaries staged by this workflow.
+          $manifest = @"
+          Generated by .github/workflows/populate-ffmpeg-gs.yml
+          Target: Windows x64
+
+          ffmpeg.exe: $ffmpegVariant; Gyan Doshi FFmpeg 8.0.1; https://github.com/GyanD/codexffmpeg/releases/tag/8.0.1
+          fpcalc.exe: Chromaprint 1.6.1 Windows x64; archive SHA-256 735d6182b38e9f364b84ce6f4ccd682c75e2851de89735711d6b762d12b92a4e; https://github.com/acoustid/chromaprint/releases/tag/v1.6.1
+          gswin64c.exe and gsdll64.dll: Ghostscript 10.04.0 official Windows x64 installer, SHA-512 checked against the release SHA512SUMS; https://github.com/ArtifexSoftware/ghostpdl-downloads/releases/tag/gs10040
+          img2pdf.exe and img2pdf-gui.exe: self-contained Windows builds from the official img2pdf 0.6.3 Python package using PyInstaller 6.16.0; https://pypi.org/project/img2pdf/0.6.3/
+          TagLibSharp.dll: TagLibSharp NuGet package 2.3.0; https://www.nuget.org/packages/TagLibSharp/2.3.0
+
+          Licensing: review the component licenses before redistributing. FFmpeg's build may contain GPL-licensed components; Ghostscript 10.04.0 is available under AGPL/commercial licensing; Chromaprint is LGPL-2.1-or-later; img2pdf is LGPLv3; TagLibSharp is LGPL. See each upstream project's license and corresponding source releases.
+          "@
+          Set-Content -LiteralPath (Join-Path $dest 'DEPENDENCIES.txt') -Value $manifest -Encoding utf8
+
+          # Validate all requested files and keep every Git blob below 100 MiB.
+          $required = @('ffmpeg.exe','fpcalc.exe','gsdll64.dll','gswin64c.exe','img2pdf.exe','img2pdf-gui.exe','TagLibSharp.dll')
+          foreach ($name in $required) {
+            $p = Join-Path $dest $name
+            if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { throw "Missing required output: $name" }
+            $item = Get-Item -LiteralPath $p
+            if ($item.Length -le 0) { throw "Empty output: $name" }
+            if ($item.Length -ge (100MB)) { throw "$name exceeds GitHub's 100 MiB per-file limit." }
+            Write-Host ("[OK] {0} - {1:N0} bytes" -f $name, $item.Length)
+          }
+
+          # Check the built command-line tool can launch and report its version.
+          & (Join-Path $dest 'img2pdf.exe') --version
+          if ($LASTEXITCODE -ne 0) { throw 'img2pdf.exe smoke test failed.' }
+          if (-not (Get-Command git -ErrorAction SilentlyContinue)) { throw 'git is not available on the runner.' }
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ffmpeg-gs
+          git commit -m 'Add Windows media and PDF dependency binaries'
+          if ($LASTEXITCODE -ne 0) { throw 'Could not create the dependency commit.' }
+          git push origin HEAD:main
+          if ($LASTEXITCODE -ne 0) { throw 'Could not push the dependency commit to main.' }
