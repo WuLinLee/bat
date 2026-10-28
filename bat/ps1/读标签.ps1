@@ -23,7 +23,8 @@ $skipExts = @(
 )
 
 # ---- 加载 TagLib# ----
-$dll = "E:\ffmpeg-gs\TagLibSharp.dll"
+$dll = Join-Path $PSScriptRoot '..\..\ffmpeg-gs\TagLibSharp.dll'
+if (-not (Test-Path -LiteralPath $dll)) { $dll = 'E:\ffmpeg-gs\TagLibSharp.dll' }
 if (-not (Test-Path -LiteralPath $dll)) {
     Write-Host "[ERROR] TagLibSharp.dll not found: $dll" -ForegroundColor Red
     Read-Host "Press Enter"; exit 1
