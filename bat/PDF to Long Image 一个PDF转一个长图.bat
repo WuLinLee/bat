@@ -2,8 +2,10 @@
 chcp 65001 >nul
 setlocal disabledelayedexpansion
 
-set "GS=E:\ffmpeg-gs\gswin64c.exe"
-set "FF=E:\ffmpeg-gs\ffmpeg.exe"
+for %%I in ("%~dp0..\ffmpeg-gs") do set "TOOLDIR=%%~fI"
+if not exist "%TOOLDIR%\gswin64c.exe" set "TOOLDIR=E:\ffmpeg-gs"
+set "GS=%TOOLDIR%\gswin64c.exe"
+set "FF=%TOOLDIR%\ffmpeg.exe"
 
 if "%~1"=="" (
     echo 请把 PDF 文件拖到本文件上使用。
