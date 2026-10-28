@@ -1,6 +1,14 @@
 @echo off
 chcp 65001 >nul
 setlocal disabledelayedexpansion
+for %%I in ("%~dp0..\ffmpeg-gs\pikepdf-tools.exe") do set "PIKEPDF=%%~fI"
+if not exist "%PIKEPDF%" set "PIKEPDF=E:\ffmpeg-gs\pikepdf-tools.exe"
+if not exist "%PIKEPDF%" (
+    echo 找不到 pikepdf-tools.exe。请确认 ffmpeg-gs 文件夹已下载完整。
+    pause
+    exit /b
+)
+
 
 if "%~1"=="" (
     echo 请把 PDF 文件拖到本文件上使用。
@@ -64,117 +72,20 @@ if "%~2" neq "" (
 )
 
 set "TMPLIST=%TEMP%\pdf_split_%RANDOM%.txt"
-set "PYSCRIPT=%TEMP%\pdf_split_%RANDOM%.py"
 if exist "%TMPLIST%" del "%TMPLIST%"
-if exist "%PYSCRIPT%" del "%PYSCRIPT%"
 
-rem 在 disabledelayedexpansion 下写入路径，防止 ! 和 % 被 CMD 截断
+rem 在 disabledelayedexpansion 下写入路径，防止 ! 和 %% 被 CMD 截断
 >>"%TMPLIST%" echo %~f1
 
 for /f "usebackq delims=" %%D in (`powershell -NoProfile -Command "[Environment]::GetFolderPath('Desktop')"`) do set "DESKTOP=%%D"
 
-> "%PYSCRIPT%" echo import sys, os
->>"%PYSCRIPT%" echo from datetime import datetime
->>"%PYSCRIPT%" echo import pikepdf
->>"%PYSCRIPT%" echo from pikepdf import Pdf
->>"%PYSCRIPT%" echo.
->>"%PYSCRIPT%" echo try:
->>"%PYSCRIPT%" echo     sys.stdout.reconfigure(encoding='utf-8')
->>"%PYSCRIPT%" echo except Exception:
->>"%PYSCRIPT%" echo     pass
->>"%PYSCRIPT%" echo.
->>"%PYSCRIPT%" echo with open(sys.argv[1], 'r', encoding='utf-8') as f:
->>"%PYSCRIPT%" echo     files = [line.rstrip('\n') for line in f if line.strip()]
->>"%PYSCRIPT%" echo.
->>"%PYSCRIPT%" echo if not files:
->>"%PYSCRIPT%" echo     print('没有文件')
->>"%PYSCRIPT%" echo     sys.exit(1)
->>"%PYSCRIPT%" echo.
->>"%PYSCRIPT%" echo pdf_path = files[0]
->>"%PYSCRIPT%" echo desktop = sys.argv[2]
->>"%PYSCRIPT%" echo.
->>"%PYSCRIPT%" echo src = Pdf.open(pdf_path)
->>"%PYSCRIPT%" echo total = len(src.pages)
->>"%PYSCRIPT%" echo.
->>"%PYSCRIPT%" echo print()
->>"%PYSCRIPT%" echo print(f'  文件：{os.path.basename(pdf_path)}')
->>"%PYSCRIPT%" echo print(f'  总页数：{total}')
->>"%PYSCRIPT%" echo print()
->>"%PYSCRIPT%" echo print('  输入页码范围，空格分隔，每个范围生成一个 PDF')
->>"%PYSCRIPT%" echo print('  例1：1-3 4-9 10-17')
->>"%PYSCRIPT%" echo print('  例2：1-5 8-11 10-16 18-33 可跳过 可重叠')
->>"%PYSCRIPT%" echo print()
->>"%PYSCRIPT%" echo.
->>"%PYSCRIPT%" echo while True:
->>"%PYSCRIPT%" echo     user_input = input('请输入范围: ').strip()
->>"%PYSCRIPT%" echo     if not user_input:
->>"%PYSCRIPT%" echo         print('  请输入至少一个范围')
->>"%PYSCRIPT%" echo         continue
->>"%PYSCRIPT%" echo     parts = user_input.split()
->>"%PYSCRIPT%" echo     ranges = []
->>"%PYSCRIPT%" echo     ok = True
->>"%PYSCRIPT%" echo     for r in parts:
->>"%PYSCRIPT%" echo         try:
->>"%PYSCRIPT%" echo             if '-' in r:
->>"%PYSCRIPT%" echo                 a, b = r.split('-', 1)
->>"%PYSCRIPT%" echo                 start = int(a)
->>"%PYSCRIPT%" echo                 end = int(b)
->>"%PYSCRIPT%" echo             else:
->>"%PYSCRIPT%" echo                 start = end = int(r)
->>"%PYSCRIPT%" echo         except ValueError:
->>"%PYSCRIPT%" echo             print(f'  格式错误：{r}')
->>"%PYSCRIPT%" echo             ok = False
->>"%PYSCRIPT%" echo             break
->>"%PYSCRIPT%" echo         if start ^< 1 or end ^< 1 or start ^> total or end ^> total:
->>"%PYSCRIPT%" echo             print(f'  页码超出范围：{r}  必须在 1 到 {total} 之间')
->>"%PYSCRIPT%" echo             ok = False
->>"%PYSCRIPT%" echo             break
->>"%PYSCRIPT%" echo         if start ^> end:
->>"%PYSCRIPT%" echo             print(f'  起始页大于结束页：{r}')
->>"%PYSCRIPT%" echo             ok = False
->>"%PYSCRIPT%" echo             break
->>"%PYSCRIPT%" echo         ranges.append((start, end))
->>"%PYSCRIPT%" echo     if ok and ranges:
->>"%PYSCRIPT%" echo         break
->>"%PYSCRIPT%" echo.
->>"%PYSCRIPT%" echo base = os.path.splitext(os.path.basename(pdf_path))[0]
->>"%PYSCRIPT%" echo now = datetime.now()
->>"%PYSCRIPT%" echo timestamp = now.strftime('%%Y.%%m.%%d %%H.%%M')
->>"%PYSCRIPT%" echo.
->>"%PYSCRIPT%" echo print()
->>"%PYSCRIPT%" echo print(f'  共生成 {len(ranges)} 个 PDF：')
->>"%PYSCRIPT%" echo print()
->>"%PYSCRIPT%" echo.
->>"%PYSCRIPT%" echo for (start, end) in ranges:
->>"%PYSCRIPT%" echo     if start == end:
->>"%PYSCRIPT%" echo         page_str = f'({start})'
->>"%PYSCRIPT%" echo     else:
->>"%PYSCRIPT%" echo         page_str = f'({start}-{end})'
->>"%PYSCRIPT%" echo     out = os.path.join(desktop, f'{base} {page_str} {timestamp}.pdf')
->>"%PYSCRIPT%" echo     if os.path.exists(out):
->>"%PYSCRIPT%" echo         print(f'    已存在：{os.path.basename(out)}')
->>"%PYSCRIPT%" echo         answer = input('    覆盖？(Y=覆盖 / 其他=跳过): ').strip().lower()
->>"%PYSCRIPT%" echo         if not answer == 'y':
->>"%PYSCRIPT%" echo             print(f'    跳过：{os.path.basename(out)}')
->>"%PYSCRIPT%" echo             continue
->>"%PYSCRIPT%" echo     out_pdf = Pdf.new()
->>"%PYSCRIPT%" echo     for i in range(start - 1, end):
->>"%PYSCRIPT%" echo         out_pdf.pages.append(src.pages[i])
->>"%PYSCRIPT%" echo     out_pdf.save(out)
->>"%PYSCRIPT%" echo     print(f'    {os.path.basename(out)}')
->>"%PYSCRIPT%" echo.
->>"%PYSCRIPT%" echo src.close()
->>"%PYSCRIPT%" echo print()
->>"%PYSCRIPT%" echo print('  完成')
-
-python "%PYSCRIPT%" "%TMPLIST%" "%DESKTOP%"
+"%PIKEPDF%" split "%TMPLIST%" "%DESKTOP%"
 if errorlevel 1 (
     echo.
-    echo   失败：请确认已安装 Python 和 pikepdf
+    echo   拆分失败：请检查 PDF 文件是否损坏或被占用。
 )
 
 del "%TMPLIST%" 2>nul
-del "%PYSCRIPT%" 2>nul
 pause
 exit /b
 
