@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - .github/workflows/populate-ffmpeg-gs.yml
+      - tools/pikepdf_tools.py
   workflow_dispatch:
 
 permissions:
@@ -20,6 +21,11 @@ jobs:
         uses: actions/checkout@v4
         with:
           persist-credentials: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
 
       - name: Download and stage tools
         shell: pwsh
@@ -124,8 +130,8 @@ jobs:
           # because the small pip launcher stubs are not portable without their companion scripts/Python packages.
           $pythonWork = Join-Path $work 'img2pdf-build'
           New-Item -ItemType Directory -Path $pythonWork -Force | Out-Null
-          python -m pip install --disable-pip-version-check 'img2pdf==0.6.3' 'pyinstaller==6.16.0'
-          if ($LASTEXITCODE -ne 0) { throw 'Could not install the pinned img2pdf build dependencies.' }
+          python -m pip install --disable-pip-version-check 'pikepdf==9.11.0' 'img2pdf==0.6.3' 'pyinstaller==6.16.0'
+          if ($LASTEXITCODE -ne 0) { throw 'Could not install the pinned PDF build dependencies.' }
           $cliEntry = Join-Path $pythonWork 'img2pdf_cli_entry.py'
           @'
           from img2pdf import main
@@ -144,15 +150,20 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw 'Could not build img2pdf.exe.' }
             python -m PyInstaller --clean --noconfirm --onefile --windowed --name img2pdf-gui --collect-all img2pdf --collect-all pikepdf --collect-all PIL $guiEntry
             if ($LASTEXITCODE -ne 0) { throw 'Could not build img2pdf-gui.exe.' }
+            $pikepdfHelper = Join-Path $repoRoot 'tools\pikepdf_tools.py'
+            python -m PyInstaller --clean --noconfirm --onefile --console --name pikepdf-tools --collect-all pikepdf $pikepdfHelper
+            if ($LASTEXITCODE -ne 0) { throw 'Could not build pikepdf-tools.exe.' }
           } finally {
             Pop-Location
           }
           $imgExe = Join-Path $pythonWork 'dist\img2pdf.exe'
           $imgGuiExe = Join-Path $pythonWork 'dist\img2pdf-gui.exe'
-          if (-not (Test-Path -LiteralPath $imgExe) -or -not (Test-Path -LiteralPath $imgGuiExe)) { throw 'The img2pdf build outputs are missing.' }
+          $pikepdfExe = Join-Path $pythonWork 'dist\pikepdf-tools.exe'
+          if (-not (Test-Path -LiteralPath $imgExe) -or -not (Test-Path -LiteralPath $imgGuiExe) -or -not (Test-Path -LiteralPath $pikepdfExe)) { throw 'One or more self-contained PDF executables are missing.' }
           Copy-Item -LiteralPath $imgExe -Destination (Join-Path $dest 'img2pdf.exe') -Force
           Copy-Item -LiteralPath $imgGuiExe -Destination (Join-Path $dest 'img2pdf-gui.exe') -Force
-          Write-Host 'Self-contained img2pdf executables built successfully.'
+          Copy-Item -LiteralPath $pikepdfExe -Destination (Join-Path $dest 'pikepdf-tools.exe') -Force
+          Write-Host 'Self-contained img2pdf and pikepdf executables built successfully.'
 
           # TagLibSharp 2.3.0 from the official NuGet package.
           $nupkg = Join-Path $work 'TagLibSharp.2.3.0.nupkg'
@@ -175,6 +186,7 @@ jobs:
           fpcalc.exe: Chromaprint 1.6.1 Windows x64; archive SHA-256 735d6182b38e9f364b84ce6f4ccd682c75e2851de89735711d6b762d12b92a4e; https://github.com/acoustid/chromaprint/releases/tag/v1.6.1
           gswin64c.exe and gsdll64.dll: Ghostscript 10.04.0 official Windows x64 installer, SHA-512 checked against the release SHA512SUMS; https://github.com/ArtifexSoftware/ghostpdl-downloads/releases/tag/gs10040
           img2pdf.exe and img2pdf-gui.exe: self-contained Windows builds from the official img2pdf 0.6.3 Python package using PyInstaller 6.16.0; https://pypi.org/project/img2pdf/0.6.3/
+          pikepdf-tools.exe: self-contained PDF merge/split/pagecount helper built from tools/pikepdf_tools.py with pikepdf 9.11.0 and PyInstaller 6.16.0; https://pypi.org/project/pikepdf/9.11.0/
           TagLibSharp.dll: TagLibSharp NuGet package 2.3.0; https://www.nuget.org/packages/TagLibSharp/2.3.0
 
           Licensing: review the component licenses before redistributing. FFmpeg's build may contain GPL-licensed components; Ghostscript 10.04.0 is available under AGPL/commercial licensing; Chromaprint is LGPL-2.1-or-later; img2pdf is LGPLv3; TagLibSharp is LGPL. See each upstream project's license and corresponding source releases.
@@ -182,7 +194,7 @@ jobs:
           Set-Content -LiteralPath (Join-Path $dest 'DEPENDENCIES.txt') -Value $manifest -Encoding utf8
 
           # Validate all requested files and keep every Git blob below 100 MiB.
-          $required = @('ffmpeg.exe','fpcalc.exe','gsdll64.dll','gswin64c.exe','img2pdf.exe','img2pdf-gui.exe','TagLibSharp.dll')
+          $required = @('ffmpeg.exe','fpcalc.exe','gsdll64.dll','gswin64c.exe','img2pdf.exe','img2pdf-gui.exe','pikepdf-tools.exe','TagLibSharp.dll')
           foreach ($name in $required) {
             $p = Join-Path $dest $name
             if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { throw "Missing required output: $name" }
@@ -195,6 +207,13 @@ jobs:
           # Check the built command-line tool can launch and report its version.
           & (Join-Path $dest 'img2pdf.exe') --version
           if ($LASTEXITCODE -ne 0) { throw 'img2pdf.exe smoke test failed.' }
+          $smokePdf = Join-Path $work 'pikepdf-smoke.pdf'
+          $env:PIKEPDF_SMOKE_PDF = $smokePdf
+          python -c "import os,pikepdf; pikepdf.Pdf.new().save(os.environ['PIKEPDF_SMOKE_PDF'])"
+          if ($LASTEXITCODE -ne 0) { throw 'Could not create pikepdf smoke-test PDF.' }
+          $pageCount = & (Join-Path $dest 'pikepdf-tools.exe') pagecount $smokePdf
+          if ($LASTEXITCODE -ne 0 -or "$pageCount".Trim() -ne '0') { throw 'pikepdf-tools.exe smoke test failed.' }
+          Remove-Item Env:PIKEPDF_SMOKE_PDF -ErrorAction SilentlyContinue
           if (-not (Get-Command git -ErrorAction SilentlyContinue)) { throw 'git is not available on the runner.' }
 
           git config user.name 'github-actions[bot]'
