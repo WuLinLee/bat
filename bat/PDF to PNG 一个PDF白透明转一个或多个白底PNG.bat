@@ -2,7 +2,10 @@
 chcp 65001 >nul
 setlocal disabledelayedexpansion
 
-set "GS=E:\ffmpeg-gs\gswin64c.exe"
+for %%I in ("%~dp0..\ffmpeg-gs") do set "TOOLDIR=%%~fI"
+if not exist "%TOOLDIR%\gswin64c.exe" set "TOOLDIR=E:\ffmpeg-gs"
+set "GS=%TOOLDIR%\gswin64c.exe"
+set "PIKEPDF=%TOOLDIR%\pikepdf-tools.exe"
 
 if "%~1"=="" (
     echo 请把 PDF 文件拖到本文件上使用。
@@ -12,6 +15,13 @@ if "%~1"=="" (
 
 if not exist "%GS%" (
     echo 找不到 Ghostscript：%GS%
+    pause
+    exit /b
+)
+
+if not exist "%PIKEPDF%" (
+    echo 找不到 pikepdf-tools.exe：%PIKEPDF%
+    echo 请确认仓库内 ffmpeg-gs 文件夹已下载完整。
     pause
     exit /b
 )
@@ -74,7 +84,7 @@ set "SRC_TMP=%~sf1"
 if not exist "%SRC_TMP%" set "SRC_TMP=%~f1"
 if "%SRC_TMP%"=="" set "SRC_TMP=%~f1"
 set "TOTAL_TMP="
-for /f "usebackq delims=" %%T in (`python -c "from pikepdf import Pdf; import sys; print(len(Pdf.open(sys.argv[1]).pages))" "%SRC_TMP%" 2^>nul`) do set "TOTAL_TMP=%%T"
+for /f "usebackq delims=" %%T in (`"%PIKEPDF%" pagecount "%SRC_TMP%" 2^>nul`) do set "TOTAL_TMP=%%T"
 if defined TOTAL_TMP (
     endlocal & set "TOTAL=%TOTAL_TMP%"
 ) else (
@@ -132,7 +142,7 @@ if "!MODE!"=="1" (
     echo.
     echo 正在转换（指定页）：!CURNAME!
     set "TOTAL=0"
-    for /f "usebackq delims=" %%T in (`python -c "from pikepdf import Pdf; import sys; print(len(Pdf.open(sys.argv[1]).pages))" "!CURFILE!" 2^>nul`) do set "TOTAL=%%T"
+    for /f "usebackq delims=" %%T in (`"%PIKEPDF%" pagecount "!CURFILE!" 2^>nul`) do set "TOTAL=%%T"
     if "!TOTAL!"=="0" (
         echo   无法读取页数 跳过此文件
     ) else (
