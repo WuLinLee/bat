@@ -24,7 +24,9 @@ try {
     $logFile = ""
 }
 
-Add-Type -Path "E:\ffmpeg-gs\TagLibSharp.dll" -ErrorAction Stop
+$dll = Join-Path $PSScriptRoot '..\..\ffmpeg-gs\TagLibSharp.dll'
+if (-not (Test-Path -LiteralPath $dll)) { $dll = 'E:\ffmpeg-gs\TagLibSharp.dll' }
+Add-Type -Path $dll -ErrorAction Stop
 
 if (-not $Paths -or $Paths.Count -eq 0) {
     Write-Host "[ERROR] No file path received." -ForegroundColor Red
