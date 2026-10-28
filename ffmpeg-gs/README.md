@@ -14,7 +14,7 @@ Copy the matching, trusted Windows x64 binaries into this folder:
 - `img2pdf-gui.exe`
 - `TagLibSharp.dll`
 
-The list is based on the requested local layout `E:\ffmpeg-gs`. This repository commit adds the folder and its documentation/checker only; it does **not** include the executable or DLL files because the local `E:\ffmpeg-gs` directory is not accessible from the GitHub editing environment.
+The list is based on the requested local layout `E:\ffmpeg-gs`. The repository workflow `.github/workflows/populate-ffmpeg-gs.yml` fetches and stages these tools from their upstream release sources. See `DEPENDENCIES.txt` for selected versions and provenance. The two `img2pdf` executables are self-contained builds made from the upstream `img2pdf` package, so their sizes will differ from small launcher stubs installed by Python's package manager.
 
 ## Check the folder
 
