@@ -1,7 +1,9 @@
 @echo off
 chcp 65001 >nul
 
-set "FF=E:\ffmpeg-gs\ffmpeg.exe"
+for %%I in ("%~dp0..\ffmpeg-gs") do set "TOOLDIR=%%~fI"
+if not exist "%TOOLDIR%\ffmpeg.exe" set "TOOLDIR=E:\ffmpeg-gs"
+set "FF=%TOOLDIR%\ffmpeg.exe"
 
 if "%~1"=="" (
     echo 请把视频文件拖到本文件上使用。
