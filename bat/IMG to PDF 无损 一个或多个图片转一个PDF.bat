@@ -2,7 +2,9 @@
 chcp 65001 >nul
 setlocal disabledelayedexpansion
 
-set "IMG2PDF=E:\ffmpeg-gs\img2pdf.exe"
+for %%I in ("%~dp0..\ffmpeg-gs") do set "TOOLDIR=%%~fI"
+if not exist "%TOOLDIR%\img2pdf.exe" set "TOOLDIR=E:\ffmpeg-gs"
+set "IMG2PDF=%TOOLDIR%\img2pdf.exe"
 
 if "%~1"=="" (
     echo 请把一张或多张图片拖到本文件上使用。
