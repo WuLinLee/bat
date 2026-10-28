@@ -2,7 +2,7 @@
 
 一个以 Windows `.bat` 和 PowerShell 脚本为主的个人效率工具集，集中处理音视频转换、PDF/图片转换、音乐标签检查、目录树生成和局域网共享诊断。多数工具使用“把文件或文件夹拖到脚本上”的方式启动，不需要手动输入复杂命令。
 
-> **平台：** Windows x64。部分功能依赖 FFmpeg、Ghostscript、Python、Microsoft Word 或 PowerShell 模块。请先阅读下方的安装和注意事项，再处理重要文件。
+> **平台：** Windows x64。部分功能使用仓库自带的 FFmpeg、Ghostscript 和独立 EXE；Word 转 PDF 仍需安装桌面版 Microsoft Word。请先阅读下方的安装和注意事项，再处理重要文件。
 
 ## 功能一览
 
@@ -32,57 +32,53 @@
 git clone https://github.com/WuLinLee/bat.git
 ```
 
-### 2. 配置公共依赖目录
+### 2. 保持仓库目录结构
 
-目前多个脚本把依赖路径写死为：
+下载 ZIP 并解压后，保持仓库根目录下的 `bat` 与 `ffmpeg-gs` 文件夹在一起，不需要把依赖手动复制到 E 盘，也不要重命名文件夹。脚本会优先从仓库相对路径寻找 FFmpeg、Ghostscript、img2pdf、pikepdf-tools 和 TagLibSharp；为兼容旧配置，部分脚本仍保留 `E:\\ffmpeg-gs\\` 备用路径。
 
-```text
-E:\\ffmpeg-gs\\
-```
-
-仓库已经提供 [ffmpeg-gs 依赖目录](<ffmpeg-gs/>)，包含脚本使用的部分 Windows 程序和 DLL。为了让现有脚本按原样工作，请将仓库中的 `ffmpeg-gs` 目录复制到本机的 `E:\\ffmpeg-gs`，最终应包含：
+目录结构应类似这样：
 
 ```text
-E:\\ffmpeg-gs\\
-├── ffmpeg.exe
-├── fpcalc.exe
-├── gsdll64.dll
-├── gswin64c.exe
-├── img2pdf.exe
-├── img2pdf-gui.exe
-└── TagLibSharp.dll
+bat/
+├── bat/
+│   └── 各种 .bat / PowerShell 脚本
+├── ffmpeg-gs/
+│   ├── ffmpeg.exe
+│   ├── fpcalc.exe
+│   ├── gsdll64.dll
+│   ├── gswin64c.exe
+│   ├── img2pdf.exe
+│   ├── img2pdf-gui.exe
+│   ├── pikepdf-tools.exe
+│   └── TagLibSharp.dll
+└── tools/
+    └── pikepdf_tools.py
 ```
 
-如果不使用 E 盘，需修改对应脚本顶部的 `FF`、`GS`、`IMG2PDF` 或 `TagLibSharp.dll` 路径。文件是否齐全可以在 PowerShell 中检查：
+可以在仓库根目录打开 PowerShell，检查依赖文件是否齐全：
 
 ```powershell
-& 'E:\\ffmpeg-gs\\verify-dependencies.ps1'
+.\\ffmpeg-gs\\verify-dependencies.ps1
 ```
 
-依赖的版本、下载来源和许可提示见 [ffmpeg-gs/README.md](<ffmpeg-gs/README.md>) 与 [DEPENDENCIES.txt](<ffmpeg-gs/DEPENDENCIES.txt>)。
+依赖版本、下载来源和许可提示见 [ffmpeg-gs/README.md](<ffmpeg-gs/README.md>) 与 [DEPENDENCIES.txt](<ffmpeg-gs/DEPENDENCIES.txt>)。
 
-### 3. 安装各工具需要的额外依赖
+### 3. 依赖说明
 
 | 工具 | 依赖 / 要求 |
 | --- | --- |
-| 音频转 MP3、视频转 MKV/MP4 | `E:\\ffmpeg-gs\\ffmpeg.exe` |
-| 图片转 PDF | `E:\\ffmpeg-gs\\img2pdf.exe` |
-| PDF 转长图 | `gswin64c.exe` 与 `ffmpeg.exe` |
-| PDF 转 PNG | `gswin64c.exe`、Python 和 `pikepdf`（脚本用它读取页数） |
-| PDF 合并 / 拆分 | Python 与 `pikepdf` |
+| 音频转 MP3、视频转 MKV/MP4 | 仓库内的 `ffmpeg.exe` |
+| 图片转 PDF | 仓库内自包含的 `img2pdf.exe` |
+| PDF 合并 / 拆分 | 仓库内自包含的 `pikepdf-tools.exe`；无需另装 Python 或 `pikepdf` |
+| PDF 转 PNG | 仓库内的 `gswin64c.exe` 与 `pikepdf-tools.exe`；无需另装 Python 或 `pikepdf` |
+| PDF 转长图 | 仓库内的 `gswin64c.exe` 与 `ffmpeg.exe` |
 | Word 转 PDF | 已安装的桌面版 Microsoft Word；依赖 Word COM 自动化 |
-| 音乐标签读取 / 歌词诊断 | `E:\\ffmpeg-gs\\TagLibSharp.dll` |
+| 音乐标签读取 / 歌词诊断 | 仓库内的 `TagLibSharp.dll` |
 | 目录树生成、网络共享检查 | Windows PowerShell；网络共享检查涉及系统级信息，建议使用其 VBS 启动器按提示授权 |
 | 局域网 IP 扫描 | 与 `局域网IP扫描.bat` 同目录的 `tcping.exe` |
 
-PDF 合并 / 拆分如未安装 Python 和 `pikepdf`，脚本会提示失败。可在 Python 环境中安装：
-
-```powershell
-python -m pip install pikepdf
-```
-
-PDF 转 PNG 会调用 `python -c "from pikepdf import Pdf ..."` 读取页数，因此也需要可用的 Python 与 `pikepdf`。图片转 PDF 使用仓库提供的 `img2pdf.exe`，不要求另行安装 Python。
-
+除了 Word 转 PDF 需要本机安装桌面版 Microsoft Word 之外，表中列出的音视频和 PDF 工具均使用仓库内提供的运行程序。无需为了 PDF 合并、拆分、图片转 PDF 或 PDF 转 PNG 单独安装 Python。
+ 
 ## 各工具怎么用
 
 ### 音频、视频、图片和 PDF
@@ -127,13 +123,13 @@ PDF 转 PNG 会调用 `python -c "from pikepdf import Pdf ..."` 读取页数，�
 
 ## 常见问题
 
-**脚本提示找不到 FFmpeg、Ghostscript、img2pdf 或 TagLibSharp？**
+**脚本提示找不到 FFmpeg、Ghostscript、img2pdf、pikepdf-tools 或 TagLibSharp？**
 
-检查 `E:\\ffmpeg-gs` 是否存在，以及文件名是否正确。不要把整个目录改名；若安装在其他位置，需要同步修改脚本里的硬编码路径。
+检查解压目录里是否同时存在 `bat` 和 `ffmpeg-gs` 两个文件夹，以及 `ffmpeg-gs` 中的依赖文件是否齐全。不要只下载某几个 BAT 文件或把依赖目录改名；可以运行 `ffmpeg-gs\\verify-dependencies.ps1` 检查缺失文件。
 
-**PDF 合并 / 拆分提示 Python 或 pikepdf 不可用？**
+**PDF 合并 / 拆分提示缺少 pikepdf-tools？**
 
-在 PowerShell 执行 `python --version` 和 `python -m pip show pikepdf` 检查环境。电脑可能安装了 Python，但命令行未加入 PATH，或 `pikepdf` 安装在另一个 Python 环境。
+请重新下载仓库最新 ZIP 并完整解压，确认 `ffmpeg-gs\\pikepdf-tools.exe` 存在。不需要另外安装 Python 或运行 pip。
 
 **Word 转 PDF 失败？**
 
@@ -153,7 +149,7 @@ PDF 转 PNG 会调用 `python -c "from pikepdf import Pdf ..."` 读取页数，�
 - 网络共享检查会读取较多系统网络信息；局域网扫描会主动探测端口。请勿在无授权的设备或网络中运行扫描。
 - `sharecheck.ps1` 的结果属于诊断信息，不应被视为完整的渗透测试或安全审计。应结合真实客户端连接测试、Windows 共享权限和 NTFS ACL 一起判断。
 - 仓库根目录的 [LICENSE](<LICENSE>) 适用于仓库项目本身；随目录提供的第三方 EXE / DLL 有各自的许可条款。重新分发或用于商业用途前，请查阅 [依赖来源和许可说明](<ffmpeg-gs/DEPENDENCIES.txt>) 及上游项目条款。尤其要留意 FFmpeg 构建配置和 Ghostscript 的许可要求。
-- 仓库提供的 `img2pdf.exe` 与 `img2pdf-gui.exe` 是从上游 `img2pdf` Python 包构建的自包含 Windows 程序，体积会明显大于普通 Python 启动器。
+- 仓库提供的 `img2pdf.exe`、`img2pdf-gui.exe` 与 `pikepdf-tools.exe` 是从上游 Python 包构建的自包含 Windows 程序，体积会明显大于普通 Python 启动器。
 - 请先在测试文件上验证输出，再处理唯一副本、重要文档或大型媒体库。
 
 ## 目录结构
@@ -173,6 +169,8 @@ bat/
 │       ├── tree.ps1
 │       ├── 诊断.ps1
 │       └── 读标签.ps1
+├── tools/
+│   └── pikepdf_tools.py
 └── ffmpeg-gs/
     ├── ffmpeg.exe
     ├── fpcalc.exe
@@ -180,6 +178,7 @@ bat/
     ├── gswin64c.exe
     ├── img2pdf.exe
     ├── img2pdf-gui.exe
+    ├── pikepdf-tools.exe
     ├── TagLibSharp.dll
     ├── DEPENDENCIES.txt
     └── verify-dependencies.ps1
