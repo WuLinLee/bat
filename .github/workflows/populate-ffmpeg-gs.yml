@@ -14,6 +14,7 @@ permissions:
 jobs:
   populate:
     runs-on: windows-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -61,11 +62,9 @@ jobs:
           Check-Sha256 $ffmpegFull '42edab4b9241ff1184b26d5f4545322227589713a7e56cf4459c4c4e30ccaaac'
           $ffmpegExtract = Join-Path $work 'ffmpeg-full'
           New-Item -ItemType Directory -Path $ffmpegExtract -Force | Out-Null
-          & $sevenZip x $ffmpegFull "-o$ffmpegExtract" -y | Out-Null
-          if ($LASTEXITCODE -ne 0) { throw 'Could not extract the FFmpeg full build archive.' }
-          $ffmpegSource = Get-ChildItem -Path $ffmpegExtract -Filter ffmpeg.exe -Recurse -File |
-            Where-Object { $_.FullName -match '[\\/]bin[\\/]ffmpeg\.exe$' } |
-            Select-Object -First 1
+          & $sevenZip e $ffmpegFull '*\bin\ffmpeg.exe' "-o$ffmpegExtract" -r -y | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw 'Could not extract ffmpeg.exe from the FFmpeg full build archive.' }
+          $ffmpegSource = Get-ChildItem -Path $ffmpegExtract -Filter ffmpeg.exe -Recurse -File | Select-Object -First 1
           if (-not $ffmpegSource) { throw 'ffmpeg.exe was not found in the extracted full build.' }
 
           if ($ffmpegSource.Length -ge (100MB)) {
@@ -75,11 +74,9 @@ jobs:
             Check-Sha256 $ffmpegEss 'a0c715acca3839bfd203e600a7775b83cfe3ff928a4eceb9ca54f2982365901c'
             $essExtract = Join-Path $work 'ffmpeg-essentials'
             New-Item -ItemType Directory -Path $essExtract -Force | Out-Null
-            & $sevenZip x $ffmpegEss "-o$essExtract" -y | Out-Null
-            if ($LASTEXITCODE -ne 0) { throw 'Could not extract the FFmpeg essentials archive.' }
-            $ffmpegSource = Get-ChildItem -Path $essExtract -Filter ffmpeg.exe -Recurse -File |
-              Where-Object { $_.FullName -match '[\\/]bin[\\/]ffmpeg\.exe$' } |
-              Select-Object -First 1
+            & $sevenZip e $ffmpegEss '*\bin\ffmpeg.exe' "-o$essExtract" -r -y | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw 'Could not extract ffmpeg.exe from the FFmpeg essentials archive.' }
+            $ffmpegSource = Get-ChildItem -Path $essExtract -Filter ffmpeg.exe -Recurse -File | Select-Object -First 1
             $ffmpegVariant = '8.0.1 essentials (GitHub file-size limit)'
           } else {
             $ffmpegVariant = '8.0.1 full'
@@ -87,6 +84,7 @@ jobs:
           if (-not $ffmpegSource -or $ffmpegSource.Length -ge (100MB)) { throw 'No suitable ffmpeg.exe under GitHub''s 100 MiB per-file limit was found.' }
           Copy-Item -LiteralPath $ffmpegSource.FullName -Destination (Join-Path $dest 'ffmpeg.exe') -Force
           Write-Host "FFmpeg selected: $ffmpegVariant; $($ffmpegSource.Length) bytes"
+          Write-Host 'FFmpeg staged successfully.'
 
           # fpcalc from the official Chromaprint 1.6.1 Windows x64 release.
           $fpZip = Join-Path $work 'chromaprint-fpcalc-1.6.1-windows-x86_64.zip'
@@ -97,6 +95,7 @@ jobs:
           $fpSource = Get-ChildItem -Path $fpExtract -Filter fpcalc.exe -Recurse -File | Select-Object -First 1
           if (-not $fpSource) { throw 'fpcalc.exe was not found in the official Chromaprint archive.' }
           Copy-Item -LiteralPath $fpSource.FullName -Destination (Join-Path $dest 'fpcalc.exe') -Force
+          Write-Host 'fpcalc staged successfully.'
 
           # Ghostscript 10.04.0 official Windows x64 installer and checksum manifest.
           $gsInstaller = Join-Path $work 'gs10040w64.exe'
@@ -109,16 +108,17 @@ jobs:
           if (-not $expectedGs) { throw 'Could not parse Ghostscript installer SHA-512 checksum.' }
           $actualGs = (Get-FileHash -LiteralPath $gsInstaller -Algorithm SHA512).Hash
           if ($actualGs.ToLowerInvariant() -ne $expectedGs.ToLowerInvariant()) { throw 'Ghostscript installer SHA-512 mismatch.' }
-          $gsInstall = Join-Path $work 'ghostscript-install'
+          # Extract the official NSIS installer rather than running an interactive installer on the runner.
+          $gsInstall = Join-Path $work 'ghostscript-extracted'
           New-Item -ItemType Directory -Path $gsInstall -Force | Out-Null
-          $gsArg = '/D=' + $gsInstall
-          $proc = Start-Process -FilePath $gsInstaller -ArgumentList @('/S', $gsArg) -Wait -PassThru
-          if ($proc.ExitCode -ne 0) { throw "Ghostscript installer returned exit code $($proc.ExitCode)." }
+          & $sevenZip x $gsInstaller "-o$gsInstall" -y | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw 'Could not extract the official Ghostscript 10.04.0 installer.' }
           $gsExe = Get-ChildItem -Path $gsInstall -Filter gswin64c.exe -Recurse -File | Select-Object -First 1
           $gsDll = Get-ChildItem -Path $gsInstall -Filter gsdll64.dll -Recurse -File | Select-Object -First 1
-          if (-not $gsExe -or -not $gsDll) { throw 'Could not locate gswin64c.exe and gsdll64.dll after installing Ghostscript.' }
+          if (-not $gsExe -or -not $gsDll) { throw 'Could not locate gswin64c.exe and gsdll64.dll in the extracted Ghostscript installer.' }
           Copy-Item -LiteralPath $gsExe.FullName -Destination (Join-Path $dest 'gswin64c.exe') -Force
           Copy-Item -LiteralPath $gsDll.FullName -Destination (Join-Path $dest 'gsdll64.dll') -Force
+          Write-Host 'Ghostscript files staged successfully.'
 
           # Official img2pdf 0.6.3 package. Build self-contained Windows executables,
           # because the small pip launcher stubs are not portable without their companion scripts/Python packages.
@@ -152,6 +152,7 @@ jobs:
           if (-not (Test-Path -LiteralPath $imgExe) -or -not (Test-Path -LiteralPath $imgGuiExe)) { throw 'The img2pdf build outputs are missing.' }
           Copy-Item -LiteralPath $imgExe -Destination (Join-Path $dest 'img2pdf.exe') -Force
           Copy-Item -LiteralPath $imgGuiExe -Destination (Join-Path $dest 'img2pdf-gui.exe') -Force
+          Write-Host 'Self-contained img2pdf executables built successfully.'
 
           # TagLibSharp 2.3.0 from the official NuGet package.
           $nupkg = Join-Path $work 'TagLibSharp.2.3.0.nupkg'
@@ -163,6 +164,7 @@ jobs:
           $tagDll = $dlls | Where-Object { $_.FullName -match '[\\/]lib[\\/]net4[0-9]+' } | Select-Object -First 1
           if (-not $tagDll) { $tagDll = $dlls | Select-Object -First 1 }
           Copy-Item -LiteralPath $tagDll.FullName -Destination (Join-Path $dest 'TagLibSharp.dll') -Force
+          Write-Host 'TagLibSharp staged successfully.'
 
           # Add a provenance record for the binaries staged by this workflow.
           $manifest = @"
@@ -200,5 +202,8 @@ jobs:
           git add ffmpeg-gs
           git commit -m 'Add Windows media and PDF dependency binaries'
           if ($LASTEXITCODE -ne 0) { throw 'Could not create the dependency commit.' }
+          git fetch origin main
+          git rebase origin/main
+          if ($LASTEXITCODE -ne 0) { throw 'Could not rebase the staged dependency commit onto the latest main.' }
           git push origin HEAD:main
           if ($LASTEXITCODE -ne 0) { throw 'Could not push the dependency commit to main.' }
