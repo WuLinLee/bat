@@ -10,6 +10,7 @@ $requiredFiles = @(
     'gswin64c.exe',
     'img2pdf.exe',
     'img2pdf-gui.exe',
+    'pikepdf-tools.exe',
     'TagLibSharp.dll'
 )
 
