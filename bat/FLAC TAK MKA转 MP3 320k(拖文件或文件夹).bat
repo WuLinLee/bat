@@ -2,7 +2,9 @@
 chcp 65001 >nul
 setlocal disabledelayedexpansion
 
-set "FF=E:\ffmpeg-gs\ffmpeg.exe"
+for %%I in ("%~dp0..\ffmpeg-gs") do set "TOOLDIR=%%~fI"
+if not exist "%TOOLDIR%\ffmpeg.exe" set "TOOLDIR=E:\ffmpeg-gs"
+set "FF=%TOOLDIR%\ffmpeg.exe"
 
 if "%~1"=="" (
     echo 请把音频文件或文件夹拖到本文件上使用。
